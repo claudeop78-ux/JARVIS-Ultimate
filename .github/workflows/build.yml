@@ -18,32 +18,35 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Extract JARVIS project
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
-          test -n "$ZIP_FILE"
-          mkdir project
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+          test -n "$ZIP_FILE" || { echo "JARVIS ZIP not found"; exit 1; }
+          mkdir -p project
           unzip -q "$ZIP_FILE" -d project
 
-      - name: Find Android project
+      - name: Find and build Android project
         run: |
           GRADLEW=$(find project -type f -name gradlew | head -n 1)
-          test -n "$GRADLEW"
-          PROJECT_DIR=$(dirname "$GRADLEW")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          test -n "$GRADLEW" || { echo "gradlew not found in ZIP"; exit 1; }
+          PROJECT_DIR="$(dirname "$GRADLEW")"
           chmod +x "$GRADLEW"
-
-      - name: Build APK
-        run: cd "$PROJECT_DIR" && ./gradlew assembleDebug
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon assembleDebug
 
       - name: Collect APK
         run: |
-          mkdir output
+          mkdir -p output
           find project -type f -path '*/app/build/outputs/apk/debug/*.apk' -exec cp {} output/ \;
           test -n "$(find output -name '*.apk' -print -quit)"
 
@@ -52,3 +55,4 @@ jobs:
         with:
           name: JARVIS-Ultimate-APK
           path: output/*.apk
+          if-no-files-found: error
