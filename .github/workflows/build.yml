@@ -20,39 +20,47 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
       - name: Configure Android SDK
         run: |
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          SDKMANAGER=$(find "$SDK/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Android SDK manager not found"
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
 
       - name: Extract JARVIS project
         run: |
           ZIP_FILE=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
-          test -n "$ZIP_FILE" || { echo "JARVIS ZIP not found"; exit 1; }
+          test -n "$ZIP_FILE" || { echo "ZIP not found"; exit 1; }
           mkdir -p project
           unzip -q "$ZIP_FILE" -d project
 
-      - name: Find and build Android project
+      - name: Find Android project
         run: |
-          GRADLEW=$(find project -type f -name gradlew | head -n 1)
-          test -n "$GRADLEW" || { echo "gradlew not found in ZIP"; exit 1; }
-          PROJECT_DIR="$(dirname "$GRADLEW")"
-          chmod +x "$GRADLEW"
-          cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug
+          SETTINGS=$(find project -type f -name settings.gradle.kts | head -n 1)
+          test -n "$SETTINGS" || { echo "Android project not found"; exit 1; }
+          PROJECT_DIR=$(dirname "$SETTINGS")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $PROJECT_DIR"
 
-      - name: Collect APK
-        run: |
-          mkdir -p output
-          find project -type f -path '*/app/build/outputs/apk/debug/*.apk' -exec cp {} output/ \;
-          test -n "$(find output -name '*.apk' -print -quit)"
+      - name: Build JARVIS APK
+        run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Ultimate-APK
-          path: output/*.apk
+          path: project/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
