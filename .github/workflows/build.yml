@@ -4,8 +4,7 @@ name: Build JARVIS APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   build:
@@ -15,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,14 +23,32 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Make Gradle executable
-        run: chmod +x gradlew
+      - name: Extract JARVIS project
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          test -n "$ZIP_FILE"
+          mkdir project
+          unzip -q "$ZIP_FILE" -d project
+
+      - name: Find Android project
+        run: |
+          GRADLEW=$(find project -type f -name gradlew | head -n 1)
+          test -n "$GRADLEW"
+          PROJECT_DIR=$(dirname "$GRADLEW")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          chmod +x "$GRADLEW"
 
       - name: Build APK
-        run: ./gradlew assembleDebug
+        run: cd "$PROJECT_DIR" && ./gradlew assembleDebug
+
+      - name: Collect APK
+        run: |
+          mkdir output
+          find project -type f -path '*/app/build/outputs/apk/debug/*.apk' -exec cp {} output/ \;
+          test -n "$(find output -name '*.apk' -print -quit)"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Ultimate-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: output/*.apk
